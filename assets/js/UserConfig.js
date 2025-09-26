@@ -1,5 +1,3 @@
-// assets/js/userConfig.js
-
 class UserConfig {
   static KEY = 'dashboardModulesConfig';
 
