@@ -1,6 +1,6 @@
 /**
- * Google Sheets Dashboard - Main JavaScript Application
- * Verze: 2.0
+ * Google Sheets Dashboard - Main JavaScript Application - CORS FIX
+ * Verze: 2.0 - OPRAVENO PRO CORS
  * Autor: Dashboard System
  */
 
@@ -27,6 +27,9 @@ class GoogleSheetsDashboard {
         this.itemsPerPage = 10;
         this.filteredData = [];
         
+        // JSONP callback counter
+        this.callbackCounter = 0;
+        
         // Event binding
         this.init();
     }
@@ -35,7 +38,7 @@ class GoogleSheetsDashboard {
      * Inicializace aplikace
      */
     async init() {
-        console.log('🚀 Inicializace Google Sheets Dashboard v2.0...');
+        console.log('🚀 Inicializace Google Sheets Dashboard v2.0 - CORS FIX...');
         
         try {
             // Načtení konfigurace
@@ -136,7 +139,7 @@ class GoogleSheetsDashboard {
     }
     
     /**
-     * Načtení všech dat z Google Apps Script
+     * Načtení všech dat z Google Apps Script - OPRAVENO PRO CORS
      */
     async loadAllData() {
         if (this.isLoading) {
@@ -145,36 +148,31 @@ class GoogleSheetsDashboard {
         }
         
         this.isLoading = true;
-        console.log('📊 Načítám data z Google Apps Script...');
+        console.log('📊 Načítám data z Google Apps Script - CORS FIX...');
         
         this.showLoading(true);
         this.hideError();
         this.updateLoadingProgress(0);
         
         try {
-            // Paralelní načtení všech dat s progress tracking
-            const dataPromises = [
-                this.fetchFromGAS('dashboard').then(data => {
-                    this.updateLoadingProgress(33);
-                    return { key: 'dashboard', data };
-                }),
-                this.fetchFromGAS('charts').then(data => {
-                    this.updateLoadingProgress(66);
-                    return { key: 'charts', data };
-                }),
-                this.fetchFromGAS('tables').then(data => {
-                    this.updateLoadingProgress(100);
-                    return { key: 'tables', data };
-                })
-            ];
+            // Sekvenční načítání dat s JSONP
+            console.log('🔗 Volám GAS API pomocí JSONP...');
             
-            const results = await Promise.all(dataPromises);
+            const dashboardData = await this.fetchFromGASJsonp('dashboard');
+            this.updateLoadingProgress(33);
+            
+            const chartsData = await this.fetchFromGASJsonp('charts');
+            this.updateLoadingProgress(66);
+            
+            const tablesData = await this.fetchFromGASJsonp('tables');
+            this.updateLoadingProgress(100);
             
             // Zpracování výsledků
-            this.data = {};
-            results.forEach(result => {
-                this.data[result.key] = result.data;
-            });
+            this.data = {
+                dashboard: dashboardData,
+                charts: chartsData,
+                tables: tablesData
+            };
             
             // Vykreslení všech komponent
             await this.renderAllComponents();
@@ -188,7 +186,7 @@ class GoogleSheetsDashboard {
                 this.showSuccessToast('Data byla úspěšně načtena');
             }
             
-            console.log('✅ Data byla úspěšně načtena a vykreslena');
+            console.log('✅ Data byla úspěšně načtena pomocí JSONP');
             
         } catch (error) {
             console.error('❌ Chyba při načítání dat:', error);
@@ -203,61 +201,70 @@ class GoogleSheetsDashboard {
     }
     
     /**
-     * Aktualizace progress baru při načítání
+     * JSONP fetch pro obcházení CORS - NOVÁ FUNKCE
      */
-    updateLoadingProgress(percentage) {
-        // Implementace progress bar update
-        console.log(`📈 Progress: ${percentage}%`);
+    fetchFromGASJsonp(action) {
+        return new Promise((resolve, reject) => {
+            if (!this.config.gasUrl) {
+                reject(new Error('URL Google Apps Script není nakonfigurována'));
+                return;
+            }
+            
+            // Vytvoř jedinečný callback název
+            this.callbackCounter++;
+            const callbackName = `gasCallback${this.callbackCounter}`;
+            
+            // Vytvoř URL s callback parametrem
+            const url = `${this.config.gasUrl}?action=${action}&callback=${callbackName}&t=${Date.now()}`;
+            console.log(`🔗 JSONP volání: ${action}`, url);
+            
+            // Timeout pro požadavek
+            const timeout = setTimeout(() => {
+                cleanup();
+                reject(new Error('Požadavek vypršel (timeout 30s)'));
+            }, 30000);
+            
+            // Cleanup funkce
+            const cleanup = () => {
+                if (window[callbackName]) {
+                    delete window[callbackName];
+                }
+                if (script && script.parentNode) {
+                    script.parentNode.removeChild(script);
+                }
+                clearTimeout(timeout);
+            };
+            
+            // Vytvoř globální callback funkci
+            window[callbackName] = (data) => {
+                cleanup();
+                
+                if (data && data.success) {
+                    console.log(`✅ JSONP data pro ${action} úspěšně načtena:`, data.data);
+                    resolve(data.data);
+                } else {
+                    reject(new Error(data?.error || 'Neznámá chyba z Google Apps Script'));
+                }
+            };
+            
+            // Vytvoř script tag pro JSONP
+            const script = document.createElement('script');
+            script.src = url;
+            script.onerror = () => {
+                cleanup();
+                reject(new Error('Síťová chyba při načítání ze skriptu'));
+            };
+            
+            // Přidej script do DOM
+            document.head.appendChild(script);
+        });
     }
     
     /**
-     * HTTP fetch z Google Apps Script
+     * Aktualizace progress baru při načítání
      */
-    async fetchFromGAS(action) {
-        if (!this.config.gasUrl) {
-            throw new Error('URL Google Apps Script není nakonfigurována');
-        }
-        
-        const url = `${this.config.gasUrl}?action=${action}&t=${Date.now()}`;
-        console.log(`🔗 Volám GAS API: ${action}`, url);
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-        
-        try {
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'no-cache'
-                },
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const result = await response.json();
-            
-            if (!result.success) {
-                throw new Error(result.error || 'Neznámá chyba z Google Apps Script');
-            }
-            
-            console.log(`✅ Data pro ${action} úspěšně načtena:`, result.data);
-            return result.data;
-            
-        } catch (error) {
-            clearTimeout(timeoutId);
-            
-            if (error.name === 'AbortError') {
-                throw new Error('Požadavek vypršel (timeout 30s)');
-            }
-            
-            throw error;
-        }
+    updateLoadingProgress(percentage) {
+        console.log(`📈 Progress: ${percentage}%`);
     }
     
     /**
@@ -1109,19 +1116,14 @@ class GoogleSheetsDashboard {
      * Advanced features
      */
     showMetricDetail(metric) {
-        // Implementace detailu metriky - modalní okno s více informacemi
         console.log('📊 Detail metriky:', metric);
-        // TODO: Implementovat detail modal
     }
     
     toggleChartFullscreen(chartId) {
-        // Implementace fullscreen režimu pro grafy
         console.log('🔍 Fullscreen graf:', chartId);
-        // TODO: Implementovat fullscreen modal
     }
     
     initializeTooltips() {
-        // Inicializace Bootstrap tooltipů
         const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.map(function (tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl);
@@ -1145,7 +1147,7 @@ class GoogleSheetsDashboard {
 
 // Initialize dashboard when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🏁 DOM načten - inicializuji dashboard...');
+    console.log('🏁 DOM načten - inicializuji dashboard s CORS fix...');
     
     window.dashboard = new GoogleSheetsDashboard();
     
