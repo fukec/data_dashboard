@@ -12,13 +12,13 @@ function fetchFromGAS(action) {
     .then(r => r.data);
 }
 
-// Celkové tržby
+// Metric: Revenue
 ModuleRegistry.register({
   id: 'metricRevenue',
   title: 'Celkové tržby',
   defaultConfig: { color: 'primary' },
-  configSchema: [{ field:'color',type:'select',options:['primary','success','info','warning','danger'] }],
-  fetchData: () => fetchFromGAS('dashboard').then(d=>d.metrics[0]),
+  configSchema: [{ field: 'color', type: 'select', options: ['primary','success','info','warning','danger'] }],
+  fetchData: () => fetchFromGAS('dashboard').then(d => d.metrics[0]),
   render(data,cfg) {
     return `
       <div class="card metric-card border-0 shadow-sm text-${cfg.color}">
@@ -30,13 +30,13 @@ ModuleRegistry.register({
   }
 });
 
-// Aktivní uživatelé
+// Metric: Users
 ModuleRegistry.register({
   id: 'metricUsers',
   title: 'Aktivní uživatelé',
   defaultConfig: { color: 'success' },
-  configSchema: [{ field:'color',type:'select',options:['primary','success','info','warning','danger'] }],
-  fetchData: () => fetchFromGAS('dashboard').then(d=>d.metrics[1]),
+  configSchema: [{ field: 'color', type: 'select', options: ['primary','success','info','warning','danger'] }],
+  fetchData: () => fetchFromGAS('dashboard').then(d => d.metrics[1]),
   render(data,cfg) {
     return `
       <div class="card metric-card border-0 shadow-sm text-${cfg.color}">
@@ -48,43 +48,41 @@ ModuleRegistry.register({
   }
 });
 
-// Měsíční trendy
+// Chart: Monthly Trends
 ModuleRegistry.register({
   id: 'chartMonthly',
   title: 'Měsíční trendy',
   defaultConfig: { type: 'line' },
-  configSchema: [{ field:'type',type:'select',options:['line','bar'] }],
-  fetchData: () => fetchFromGAS('charts').then(d=>d.monthlyTrends),
+  configSchema: [{ field: 'type', type: 'select', options: ['line','bar'] }],
+  fetchData: () => fetchFromGAS('charts').then(d => d.monthlyTrends),
   render(data,cfg) {
-    const id='chartMonthlyCanvas';
-    setTimeout(()=>{
-      new Chart(
-        document.getElementById(id).getContext('2d'),
-        { type: cfg.type, data:{
-            labels: data.map(i=>i.month),
-            datasets:[{label:'Prodeje',data:data.map(i=>i.sales),borderColor:'#0d6efd',
-            backgroundColor: cfg.type==='line'?'rgba(13,110,253,0.1)':undefined}]
-        } }
-      );
+    const id = 'chartMonthlyCanvas';
+    setTimeout(() => {
+      new Chart(document.getElementById(id).getContext('2d'), {
+        type: cfg.type,
+        data: {
+          labels: data.map(i => i.month),
+          datasets: [{ label:'Prodeje', data:data.map(i=>i.sales), borderColor:'#0d6efd',
+                        backgroundColor: cfg.type==='line'?'rgba(13,110,253,0.1)':undefined }]
+        }
+      });
     },0);
     return `
       <div class="card chart-card border-0 shadow-sm">
-        <div class="card-body p-2">
-          <canvas id="${id}" height="150"></canvas>
-        </div>
+        <div class="card-body p-2"><canvas id="${id}" height="150"></canvas></div>
       </div>`;
   }
 });
 
-// Tabulka zaměstnanců
+// Table: Employees
 ModuleRegistry.register({
   id: 'tableEmployees',
   title: 'Zaměstnanci',
   defaultConfig: { itemsPerPage: 10 },
-  configSchema: [{ field:'itemsPerPage',type:'number',min:1,max:50 }],
-  fetchData: () => fetchFromGAS('tables').then(d=>d.employees),
+  configSchema: [{ field: 'itemsPerPage', type: 'number', min:1, max:50 }],
+  fetchData: () => fetchFromGAS('tables').then(d => d.employees),
   render(data,cfg) {
-    const rows=data.slice(0,cfg.itemsPerPage).map(e=>`
+    const rows = data.slice(0,cfg.itemsPerPage).map(e => `
       <tr>
         <td>${e.id}</td><td>${e.name}</td><td>${e.department}</td>
         <td>${e.position}</td><td>${e.salary}</td><td>${e.performance}%</td>
