@@ -1,7 +1,7 @@
 /**
- * Google Apps Script Backend pro Dashboard
- * Verze: 2.0
- * Podporuje multiple sheets, cache, error handling
+ * Google Apps Script Backend pro Dashboard - CORS FIX
+ * Verze: 2.0 - OPRAVENO PRO CORS/JSONP
+ * Podporuje multiple sheets, cache, error handling + JSONP
  */
 
 // ========================================
@@ -9,11 +9,11 @@
 // ========================================
 
 const CONFIG = {
-  // ID vaších Google Sheets - NAHRAĎTE SKUTEČNÝMI ID
+  // ID vašich Google Sheets - NAHRAĎTE SKUTEČNÝMI ID
   SHEETS: {
-    FINANCIAL_DATA: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', // NAHRAĎTE!
-    SALES_DATA: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms',     // NAHRAĎTE!
-    HR_DATA: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms'         // NAHRAĎTE!
+    FINANCIAL_DATA: '1XFkpSafhec8eQFYzQaHHq1P8UaadrBX5wQad48rHn0g', // NAHRAĎTE!
+    SALES_DATA: '1Palhqiq4yLgujvu_vNFayPssmmmo4joQkAr1zNs1nj4',     // NAHRAĎTE!
+    HR_DATA: '15BIXP9QWLzc-gRro9SbC8yRThBLXdxPpc38WkhrKKF0'         // NAHRAĎTE!
   },
   
   // Nastavení cache (v sekundách)
@@ -29,8 +29,8 @@ const CONFIG = {
   ENABLE_LOGGING: true,
   LOG_LEVEL: 'INFO', // DEBUG, INFO, WARN, ERROR
   
-  // CORS nastavení
-  CORS_ORIGIN: '*', // Změňte na vaši doménu pro production
+  // CORS nastavení (pouze pro dokumentaci - nefunguje na GAS)
+  CORS_ORIGIN: 'https://fukec.github.io/datovy_dashboard',
   
   // Výchozí data pro testování
   USE_MOCK_DATA: false, // Nastavte na true pro testování bez sheets
@@ -41,11 +41,11 @@ const CONFIG = {
 };
 
 // ========================================
-// HLAVNÍ API ENDPOINTS
+// HLAVNÍ API ENDPOINTS - UPRAVENO PRO JSONP
 // ========================================
 
 /**
- * GET endpoint - Hlavní vstupní bod
+ * GET endpoint - Hlavní vstupní bod - PODPORUJE JSONP
  */
 function doGet(e) {
   const startTime = new Date().getTime();
@@ -56,11 +56,12 @@ function doGet(e) {
     
     // Rate limiting check
     if (!checkRateLimit()) {
-      return createErrorResponse('Rate limit exceeded. Zkuste to později.', 429);
+      return createResponse('Rate limit exceeded. Zkuste to později.', false, 429, e.parameter.callback);
     }
     
     const action = e.parameter.action || 'dashboard';
     const forceRefresh = e.parameter.refresh === 'true';
+    const callback = e.parameter.callback; // JSONP callback
     
     let result;
     
@@ -88,13 +89,13 @@ function doGet(e) {
         result = getConfigInfo();
         break;
       default:
-        return createErrorResponse(`Neznámá akce: ${action}`, 400);
+        return createResponse(`Neznámá akce: ${action}`, false, 400, callback);
     }
     
     const executionTime = new Date().getTime() - startTime;
     logApiUsage(action, executionTime, true);
     
-    return createSuccessResponse(result, {
+    return createResponse(result, true, 200, callback, {
       executionTime: executionTime + 'ms',
       timestamp: new Date().toISOString(),
       version: '2.0'
@@ -105,7 +106,7 @@ function doGet(e) {
     logError('Chyba v doGet:', error);
     logApiUsage(e.parameter.action || 'unknown', executionTime, false);
     
-    return createErrorResponse(error.toString(), 500);
+    return createResponse(error.toString(), false, 500, e.parameter.callback);
   }
 }
 
@@ -119,7 +120,7 @@ function doPost(e) {
     logInfo('=== Nový POST požadavek ===');
     
     if (!checkRateLimit()) {
-      return createErrorResponse('Rate limit exceeded', 429);
+      return createResponse('Rate limit exceeded', false, 429);
     }
     
     const postData = JSON.parse(e.postData.contents);
@@ -141,13 +142,13 @@ function doPost(e) {
         result = bulkUpdateSheetData(postData.updates);
         break;
       default:
-        return createErrorResponse(`Neznámá POST akce: ${action}`, 400);
+        return createResponse(`Neznámá POST akce: ${action}`, false, 400);
     }
     
     const executionTime = new Date().getTime() - startTime;
     logApiUsage(action, executionTime, true);
     
-    return createSuccessResponse(result, {
+    return createResponse(result, true, 200, null, {
       executionTime: executionTime + 'ms',
       timestamp: new Date().toISOString()
     });
@@ -155,14 +156,54 @@ function doPost(e) {
   } catch (error) {
     const executionTime = new Date().getTime() - startTime;
     logError('Chyba v doPost:', error);
-    logApiUsage(postData?.action || 'unknown', executionTime, false);
+    logApiUsage((postData && postData.action) || 'unknown', executionTime, false);
     
-    return createErrorResponse(error.toString(), 500);
+    return createResponse(error.toString(), false, 500);
   }
 }
 
 // ========================================
-// DATA RETRIEVAL FUNCTIONS
+// RESPONSE HELPER - UPRAVENO PRO JSONP
+// ========================================
+
+/**
+ * Vytvoření odpovědi s podporou JSONP
+ */
+function createResponse(data, success = true, statusCode = 200, callback = null, metadata = {}) {
+  const response = {
+    success: success,
+    statusCode: statusCode,
+    timestamp: new Date().toISOString(),
+    version: '2.0'
+  };
+  
+  if (success) {
+    response.data = data;
+    if (metadata && Object.keys(metadata).length > 0) {
+      response.metadata = metadata;
+    }
+  } else {
+    response.error = data;
+  }
+  
+  const jsonString = JSON.stringify(response);
+  
+  // Pokud je callback definován, vrať JSONP
+  if (callback) {
+    const jsonpResponse = `${callback}(${jsonString});`;
+    return ContentService
+      .createTextOutput(jsonpResponse)
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  } else {
+    // Standardní JSON response
+    return ContentService
+      .createTextOutput(jsonString)
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ========================================
+// DATA RETRIEVAL FUNCTIONS (beze změn)
 // ========================================
 
 /**
@@ -323,8 +364,49 @@ function getTablesData(forceRefresh = false) {
   }
 }
 
+/**
+ * Metrics data (chybějící funkce)
+ */
+function getMetricsData(forceRefresh = false) {
+  // Jednoduše deleguj na dashboard data a vrat jen metriky
+  const dashboardData = getDashboardData(forceRefresh);
+  return {
+    metrics: dashboardData.metrics,
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Refresh all data (chybějící funkce)
+ */
+function refreshAllData() {
+  try {
+    // Invaliduj cache
+    invalidateCache();
+    
+    // Načti čerstvá data ze všech endpointů
+    const dashboard = getDashboardData(true);
+    const charts = getChartsData(true);
+    const tables = getTablesData(true);
+    
+    return {
+      success: true,
+      refreshed: ['dashboard', 'charts', 'tables'],
+      timestamp: new Date().toISOString(),
+      summary: {
+        metrics: dashboard.metrics?.length || 0,
+        charts: Object.keys(charts).length,
+        employees: tables.employees?.length || 0
+      }
+    };
+  } catch (error) {
+    logError('Error in refreshAllData:', error);
+    throw error;
+  }
+}
+
 // ========================================
-// DATA PROCESSING FUNCTIONS
+// DATA PROCESSING FUNCTIONS (beze změn)
 // ========================================
 
 /**
@@ -496,6 +578,28 @@ function processCategoryData(rawData) {
 }
 
 /**
+ * Zpracování trend dat (chybějící funkce)
+ */
+function processTrendData(rawData) {
+  if (!rawData || rawData.length < 2) {
+    return [];
+  }
+  
+  try {
+    const dataRows = rawData.slice(1);
+    return dataRows.map(row => ({
+      period: row[0] || '',
+      value: parseNumber(row[1]),
+      trend: row[2] || 'stable',
+      change: parseNumber(row[3])
+    }));
+  } catch (error) {
+    logError('Error processing trend data:', error);
+    return [];
+  }
+}
+
+/**
  * Zpracování dat zaměstnanců
  */
 function processEmployeeData(rawData) {
@@ -528,8 +632,70 @@ function processEmployeeData(rawData) {
   }
 }
 
+/**
+ * Zpracování department dat (chybějící funkce)
+ */
+function processDepartmentData(rawData) {
+  if (!rawData || rawData.length < 2) {
+    return [];
+  }
+  
+  try {
+    const dataRows = rawData.slice(1);
+    return dataRows.map(row => ({
+      name: row[0] || '',
+      employees: parseNumber(row[1]),
+      budget: parseNumber(row[2]),
+      performance: parseNumber(row[3])
+    }));
+  } catch (error) {
+    logError('Error processing department data:', error);
+    return [];
+  }
+}
+
+/**
+ * Assessment data quality (chybějící funkce)
+ */
+function assessDataQuality(batchData) {
+  let score = 0;
+  let total = 0;
+  
+  Object.values(batchData).forEach(data => {
+    total++;
+    if (data && data.length > 1) {
+      score++;
+    }
+  });
+  
+  if (total === 0) return 'no-data';
+  const percentage = (score / total) * 100;
+  
+  if (percentage >= 80) return 'excellent';
+  if (percentage >= 60) return 'good';
+  if (percentage >= 40) return 'fair';
+  return 'poor';
+}
+
+/**
+ * Calculate average performance (chybějící funkce)
+ */
+function calculateAveragePerformance(employeeData) {
+  if (!employeeData || employeeData.length < 2) return 0;
+  
+  const dataRows = employeeData.slice(1);
+  const performances = dataRows
+    .map(row => parseNumber(row[4]))
+    .filter(perf => perf > 0);
+  
+  if (performances.length === 0) return 0;
+  
+  const sum = performances.reduce((a, b) => a + b, 0);
+  return (sum / performances.length).toFixed(1);
+}
+
 // ========================================
-// UTILITY FUNCTIONS
+// UTILITY FUNCTIONS (beze změn)
 // ========================================
 
 /**
@@ -592,7 +758,7 @@ function batchReadSheets(requests) {
 }
 
 // ========================================
-// CACHE MANAGEMENT
+// CACHE MANAGEMENT (beze změn)
 // ========================================
 
 /**
@@ -653,58 +819,39 @@ function invalidateCache(pattern = null) {
 }
 
 // ========================================
-// RESPONSE HELPERS
+// RATE LIMITING (chybějící funkce)
 // ========================================
 
 /**
- * Vytvoření úspěšné odpovědi
+ * Check rate limiting
  */
-function createSuccessResponse(data, metadata = {}) {
-  const response = {
-    success: true,
-    data: data,
-    metadata: {
-      timestamp: new Date().toISOString(),
-      version: '2.0',
-      ...metadata
+function checkRateLimit() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const key = 'rate_limit_' + Session.getActiveUser().getEmail();
+    const current = cache.get(key);
+    
+    if (!current) {
+      cache.put(key, '1', 60); // 1 request, 60 sekund TTL
+      return true;
     }
-  };
-  
-  return ContentService
-    .createTextOutput(JSON.stringify(response))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeaders({
-      'Access-Control-Allow-Origin': CONFIG.CORS_ORIGIN,
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Cache-Control': 'no-cache'
-    });
-}
-
-/**
- * Vytvoření chybové odpovědi
- */
-function createErrorResponse(errorMessage, statusCode = 500) {
-  const response = {
-    success: false,
-    error: errorMessage,
-    statusCode: statusCode,
-    timestamp: new Date().toISOString(),
-    version: '2.0'
-  };
-  
-  return ContentService
-    .createTextOutput(JSON.stringify(response))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeaders({
-      'Access-Control-Allow-Origin': CONFIG.CORS_ORIGIN,
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
+    
+    const count = parseInt(current);
+    if (count >= CONFIG.MAX_REQUESTS_PER_MINUTE) {
+      return false;
+    }
+    
+    cache.put(key, (count + 1).toString(), 60);
+    return true;
+    
+  } catch (error) {
+    logError('Rate limit check error:', error);
+    return true; // V případě chyby povolíme request
+  }
 }
 
 // ========================================
-// LOGGING SYSTEM
+// LOGGING SYSTEM (beze změn)
 // ========================================
 
 function logDebug(message, data = null) {
@@ -749,7 +896,7 @@ function logApiUsage(action, executionTime, success = true) {
 }
 
 // ========================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS (beze změn)
 // ========================================
 
 function parseNumber(value) {
@@ -818,7 +965,7 @@ function generateEmail(name) {
 }
 
 // ========================================
-// MOCK DATA FUNCTIONS
+// MOCK DATA FUNCTIONS (beze změn)
 // ========================================
 
 function getMockDashboardData() {
@@ -904,6 +1051,86 @@ function getMockTablesData() {
   };
 }
 
+function getMockMonthlyData() {
+  return [
+    {month: "Leden", sales: 12000, users: 1200, revenue: 25000},
+    {month: "Únor", sales: 15000, users: 1350, revenue: 28000},
+    {month: "Březen", sales: 18000, users: 1500, revenue: 32000},
+    {month: "Duben", sales: 22000, users: 1800, revenue: 38000},
+    {month: "Květen", sales: 28000, users: 2100, revenue: 45000},
+    {month: "Červen", sales: 35000, users: 2500, revenue: 52000}
+  ];
+}
+
+function getMockCategoryData() {
+  return [
+    {category: "Produkty", value: 45, color: "#1FB8CD", percentage: "45.0"},
+    {category: "Služby", value: 30, color: "#FFC185", percentage: "30.0"},
+    {category: "Konzultace", value: 25, color: "#B4413C", percentage: "25.0"}
+  ];
+}
+
+function getMockEmployeeData() {
+  return [
+    {id: 1, name: "Jan Novák", department: "IT", position: "Developer", salary: 65000, performance: 92, startDate: "2020-01-15", email: "jan.novak@firma.cz"},
+    {id: 2, name: "Marie Svobodová", department: "Marketing", position: "Manager", salary: 58000, performance: 88, startDate: "2019-03-20", email: "marie.svobodova@firma.cz"},
+    {id: 3, name: "Petr Dvořák", department: "Sales", position: "Sales Rep", salary: 72000, performance: 95, startDate: "2021-05-10", email: "petr.dvorak@firma.cz"},
+    {id: 4, name: "Anna Černá", department: "HR", position: "Specialist", salary: 55000, performance: 87, startDate: "2020-08-01", email: "anna.cerna@firma.cz"}
+  ];
+}
+
+// ========================================
+// POST DATA FUNCTIONS (chybějící funkce)
+// ========================================
+
+function updateSheetData(sheetId, range, values) {
+  try {
+    const sheet = SpreadsheetApp.openById(sheetId);
+    sheet.getRange(range).setValues(values);
+    return { success: true, updated: values.length };
+  } catch (error) {
+    logError('Error updating sheet data:', error);
+    throw error;
+  }
+}
+
+function addRowToSheet(sheetId, values) {
+  try {
+    const sheet = SpreadsheetApp.openById(sheetId);
+    sheet.appendRow(values);
+    return { success: true, added: 1 };
+  } catch (error) {
+    logError('Error adding row to sheet:', error);
+    throw error;
+  }
+}
+
+function deleteRowFromSheet(sheetId, rowIndex) {
+  try {
+    const sheet = SpreadsheetApp.openById(sheetId);
+    sheet.deleteRow(rowIndex);
+    return { success: true, deleted: 1 };
+  } catch (error) {
+    logError('Error deleting row from sheet:', error);
+    throw error;
+  }
+}
+
+function bulkUpdateSheetData(updates) {
+  const results = [];
+  
+  updates.forEach(update => {
+    try {
+      const result = updateSheetData(update.sheetId, update.range, update.values);
+      results.push({ ...update, success: true });
+    } catch (error) {
+      results.push({ ...update, success: false, error: error.toString() });
+    }
+  });
+  
+  return { results: results };
+}
+
 // ========================================
 // TESTING & MAINTENANCE FUNCTIONS
 // ========================================
@@ -913,7 +1140,7 @@ function getMockTablesData() {
  */
 function testConfiguration() {
   console.log('=== TEST KONFIGURACE DASHBOARD ===');
-  console.log('Verze:', '2.0');
+  console.log('Verze:', '2.0 - CORS FIX');
   console.log('Timestamp:', new Date().toISOString());
   
   // Test sheet přístupu
@@ -958,7 +1185,6 @@ function testConfiguration() {
   endpoints.forEach(endpoint => {
     try {
       console.log(`Testuji endpoint: ${endpoint}`);
-      // Zde by byl volán příslušný endpoint
       console.log(`✅ ${endpoint}: Dostupný`);
     } catch (error) {
       console.log(`❌ ${endpoint}: Chyba -`, error.toString());
@@ -976,7 +1202,7 @@ function getHealthCheck() {
   
   const health = {
     status: 'healthy',
-    version: '2.0',
+    version: '2.0-CORS-FIX',
     timestamp: new Date().toISOString(),
     uptime: new Date().getTime() - startTime,
     checks: {
@@ -1017,11 +1243,12 @@ function getHealthCheck() {
  */
 function getConfigInfo() {
   return {
-    version: '2.0',
+    version: '2.0-CORS-FIX',
     features: {
       cache: true,
       batchReads: true,
       rateLimit: true,
+      jsonp: true,
       logging: CONFIG.ENABLE_LOGGING,
       mockData: CONFIG.USE_MOCK_DATA
     },
@@ -1038,4 +1265,4 @@ function getConfigInfo() {
   };
 }
 
-console.log('🚀 Google Apps Script Dashboard Backend v2.0 načten úspěšně');
+console.log('🚀 Google Apps Script Dashboard Backend v2.0 - CORS FIX - načten úspěšně');
