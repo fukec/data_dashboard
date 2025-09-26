@@ -1,0 +1,69 @@
+{
+  "name": "google-sheets-dashboard",
+  "version": "2.0.0",
+  "description": "Moderní HTML Dashboard pro zobrazování dat z Google Sheets v reálném čase",
+  "main": "index.html",
+  "scripts": {
+    "dev": "live-server --port=3000 --open=/index.html --watch=assets/",
+    "build": "npm run minify-css && npm run minify-js && npm run optimize-assets",
+    "minify-css": "cleancss -o dist/assets/css/style.min.css assets/css/style.css",
+    "minify-js": "terser assets/js/dashboard.js -o dist/assets/js/dashboard.min.js --source-map",
+    "optimize-assets": "mkdir -p dist && cp -r assets/images dist/assets/ 2>/dev/null || true",
+    "deploy": "gh-pages -d . -x",
+    "test": "echo \"Spuštění základních testů...\" && node tests/basic-tests.js",
+    "lint": "eslint assets/js/*.js",
+    "format": "prettier --write \"**/*.{js,css,html,md}\"",
+    "serve": "python3 -m http.server 3000 --bind 127.0.0.1 || python -m SimpleHTTPServer 3000",
+    "validate": "html-validate index.html",
+    "lighthouse": "lighthouse http://localhost:3000 --output=html --output-path=lighthouse-report.html",
+    "clean": "rm -rf dist/ node_modules/.cache/ lighthouse-report.html",
+    "setup": "npm install && echo \"Setup complete! Run 'npm run dev' to start development server\""
+  },
+  "keywords": [
+    "dashboard",
+    "google-sheets",
+    "html5",
+    "bootstrap",
+    "chart.js",
+    "real-time",
+    "responsive",
+    "data-visualization"
+  ],
+  "author": {
+    "name": "Dashboard Developer",
+    "email": "developer@dashboard.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/username/google-sheets-dashboard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/username/google-sheets-dashboard/issues"
+  },
+  "homepage": "https://username.github.io/google-sheets-dashboard",
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "clean-css-cli": "^5.6.2",
+    "eslint": "^8.57.0",
+    "gh-pages": "^6.1.0",
+    "html-validate": "^8.7.4",
+    "lighthouse": "^11.4.0",
+    "live-server": "^1.2.2",
+    "prettier": "^3.1.1",
+    "terser": "^5.26.0"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.2",
+    "chart.js": "^4.4.1"
+  },
+  "browserslist": [
+    "last 2 versions",
+    "> 1%",
+    "not dead"
+  ],
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
